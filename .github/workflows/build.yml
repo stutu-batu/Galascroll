@@ -39,6 +39,21 @@ jobs:
         npx cap add android
         npx cap sync android
 
+    - name: Android İzinlerini Otomatik Ekle
+      run: |
+        python3 -c '
+        path = "android/app/src/main/AndroidManifest.xml"
+        with open(path, "r") as f:
+            content = f.read()
+        perms = """    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />
+            <uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />
+            <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />
+        </manifest>"""
+        content = content.replace("</manifest>", perms)
+        with open(path, "w") as f:
+            f.write(content)
+        '
+
     - name: Gradle ile APK Derle (Debug)
       run: |
         cd android
