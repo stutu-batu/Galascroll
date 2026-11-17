@@ -311,7 +311,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       (canRetry ? '<button id="retry" style="' + btn + 'background:#ff5a3c;color:#1a0904">Tekrar dene</button>' : '') +
       '<button id="pick" style="' + btn + 'background:rgba(255,255,255,.14);color:#f5f1ea">Dosyaları elle seç</button>';
     empty.querySelector('b').textContent = title;
-    empty.querySelector('p').textContent = detail || '';
+    empty.querySelector('p').style.whiteSpace = 'pre-wrap'; empty.querySelector('p').textContent = detail || '';
     $('#pick').onclick = () => input.click();
     if (canRetry) $('#retry').onclick = () => { location.reload(); };
   }
@@ -320,11 +320,31 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   async function resolvePath(f) {
     if (f.webPath) return f.webPath;
     const C = window.Capacitor, M = C.Plugins.Media; let path = null;
-    try { const r = await M.getMediaByIdentifier({ identifier: f.identifier }); path = r && (r.path || r.webPath); } catch (e) { /* identifier zaten yol olabilir */ }
+    const id = f.identifier || '';
+    if (id.charAt(0) === '/' || id.indexOf('file://') === 0) path = id;
+    else try { const r = await M.getMediaByIdentifier({ identifier: f.identifier }); path = r && (r.path || r.webPath); } catch (e) { /* identifier zaten yol olabilir */ }
     if (!path && f.identifier && f.identifier.charAt(0) === '/') path = f.identifier;
     if (!path) throw new Error('dosya yolu alınamadı (' + f.identifier + ')');
     f.webPath = /^(https?|capacitor|blob|data):/.test(path) ? path : C.convertFileSrc(path.indexOf('file://') === 0 ? path : 'file://' + path);
     return f.webPath;
+  }
+
+  /* Android'de Media.getMedias çalışmıyor (eklenti dokümanı: "iOS only").
+     Yöntem: Media.getAlbums (izni de o ister) -> Filesystem.readdir ile klasörleri tara. */
+  const VID = /\.(mp4|m4v|mov|webm|3gp|mkv|avi)$/i, IMG = /\.(jpe?g|png|gif|webp|bmp|heic|heif|avif)$/i;
+  async function listDir(FS, path, depth, out, seen) {
+    let r;
+    try { r = await FS.readdir({ path }); } catch (e) { return e; }
+    for (const e of (r.files || [])) {
+      const name = e.name || '';
+      if (!name || name.charAt(0) === '.') continue;
+      const uri = e.uri || (path.replace(/\/$/, '') + '/' + name);
+      if (e.type === 'directory') { if (depth > 0) await listDir(FS, uri, depth - 1, out, seen); continue; }
+      if (!(VID.test(name) || IMG.test(name)) || seen.has(uri)) continue;
+      seen.add(uri);
+      out.push({ name, uri, mtime: e.mtime || e.ctime || 0, vid: VID.test(name) });
+    }
+    return null;
   }
 
   async function initCapacitorGallery() {
@@ -332,35 +352,37 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     if (!C || !(C.isNativePlatform ? C.isNativePlatform() : false)) {
       showMsg('Tarayıcı modu', 'Galeri otomatik okunamıyor. Dosyaları elle seçebilirsiniz.', false); return;
     }
-    const M = C.Plugins && C.Plugins.Media;
-    if (!M) { showMsg('Media eklentisi bulunamadı', '@capacitor-community/media APK\'ya eklenmemiş. package.json\'a ekleyip "npx cap sync android" çalıştırın.', false); return; }
+    const M = C.Plugins && C.Plugins.Media, FS = C.Plugins && C.Plugins.Filesystem;
+    if (!M || !FS) { showMsg('Eklenti eksik', 'APK içinde ' + (!M ? '@capacitor-community/media ' : '') + (!FS ? '@capacitor/filesystem ' : '') + 'bulunamadı. build.yml\'deki npm install satırını ve "npx cap sync android" adımını kontrol edin.', false); return; }
 
-    // İzin sonucunun anahtar adı sürüme göre değişir; sonucu kapı olarak kullanma, sadece iste.
-    try { if (typeof M.requestPermissions === 'function') await M.requestPermissions(); } catch (e) { console.warn('izin:', e); }
+    const errs = [];
+    const note = (t, e) => errs.push(t + ': ' + describe(e));
+    try { if (typeof M.requestPermissions === 'function') await M.requestPermissions(); } catch (e) { note('requestPermissions', e); }
 
-    const Q = 500; let items = null, lastErr = null;
-    const attempts = [
-      async () => (await M.getMedias({ quantity: Q, types: 'all', thumbnailWidth: 96, thumbnailHeight: 96, thumbnailQuality: 40 })).medias,
-      async () => (await M.getMedias({ quantity: Q })).medias,
-      async () => (await M.getPhotos({ quantity: Q })).photos
-    ];
-    for (const a of attempts) {
-      try { const r = await a(); if (Array.isArray(r)) { items = r; break; } } catch (e) { lastErr = e; }
+    let albumPaths = [];
+    try { const r = await M.getAlbums(); albumPaths = (r.albums || []).map(a => a.identifier).filter(Boolean); } catch (e) { note('getAlbums', e); }
+
+    const out = [], seen = new Set(); let dirErr = null;
+    for (const p of albumPaths) { const e = await listDir(FS, p, 0, out, seen); if (e) dirErr = e; }
+    if (!out.length) {
+      for (const base of ['DCIM', 'Pictures', 'Movies', 'Download']) {
+        const e = await listDir(FS, 'file:///storage/emulated/0/' + base, 2, out, seen); if (e) dirErr = e;
+      }
     }
-    if (!items) { showMsg('Galeri okunamadı', 'Hata: ' + describe(lastErr), true); return; }
-    if (!items.length) { showMsg('Galeri boş görünüyor', 'Medya bulunamadı ya da izin verilmedi. Telefon Ayarları > Uygulamalar > izinler bölümünden "Fotoğraflar ve videolar" iznini açın.', true); return; }
+    if (dirErr) note('readdir', dirErr);
 
-    const toMs = d => !d ? Date.now() : typeof d === 'number' ? (d < 1e12 ? d * 1000 : d) : (Date.parse(d) || Date.now());
-    start(items.map(p => {
-      const id = p.identifier || '';
-      const vid = p.mediaType === 'video' || /\.(mp4|mov|webm|m4v|3gp|mkv)$/i.test(id);
-      return {
-        name: id.split('/').pop() || 'Galeri medyası', size: 0, lastModified: toMs(p.creationDate),
-        type: vid ? 'video/mp4' : 'image/jpeg', identifier: id,
-        thumb: p.data ? 'data:image/jpeg;base64,' + p.data : null,
-        webPath: p.webPath || null, isCapacitorMedia: true
-      };
-    }));
+    if (!out.length) {
+      showMsg('Galeride medya bulunamadı', albumPaths.length + ' albüm bulundu, 0 medya okundu.\n' + errs.join('\n') +
+        '\nİzin verilmediyse: Ayarlar > Uygulamalar > Galascrol > İzinler > "Fotoğraflar ve videolar" izni verip tekrar deneyin.', true);
+      return;
+    }
+    const toMs = d => !d ? Date.now() : (d < 1e12 ? d * 1000 : d);
+    out.sort((x, y) => y.mtime - x.mtime);
+    start(out.slice(0, 3000).map(x => ({
+      name: x.name, size: 0, lastModified: toMs(x.mtime),
+      type: x.vid ? 'video/mp4' : 'image/jpeg', identifier: x.uri,
+      thumb: null, webPath: null, isCapacitorMedia: true
+    })));
   }
 
   input.addEventListener('change', () => { if (input.files.length) start([...input.files]); input.value = ''; });
