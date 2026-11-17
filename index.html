@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Akış – Galeri</title>
+<style>
+:root{
+  --bg:#000; --ink:#f5f1ea; --dim:rgba(245,241,234,.62); --accent:#ff5a3c; --glass:rgba(20,20,20,.55);
+  --top:env(safe-area-inset-top,0px); --bot:env(safe-area-inset-bottom,0px);
+  font-family:"Avenir Next","Segoe UI",Roboto,system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--ink);overflow:hidden;overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* Boş durum */
+#empty{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
+  padding:calc(var(--top) + 32px) 28px calc(var(--bot) + 40px);
+  background:radial-gradient(120% 70% at 50% 0%,#2a1410 0%,#000 70%)}
+#empty h1{font-size:clamp(2.6rem,13vw,4.2rem);line-height:.95;font-weight:800;letter-spacing:-.03em;max-width:9ch}
+#empty p{margin:18px 0 28px;color:var(--dim);font-size:1.05rem;line-height:1.45;max-width:30ch}
+.cta{background:var(--accent);color:#1a0904;font-weight:700;font-size:1.1rem;padding:18px 24px;border-radius:999px;width:100%}
+.cta:active{transform:scale(.98)}
+#empty small{display:block;margin-top:14px;color:var(--dim);font-size:.85rem}
+
+/* Akış */
+#feed{position:fixed;inset:0;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;display:none}
+#feed::-webkit-scrollbar{display:none}
+.slide{position:relative;height:100vh;height:100dvh;scroll-snap-align:start;scroll-snap-stop:always;background:#000;overflow:hidden}
+.slide .media{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
+.slide.cover .media{object-fit:cover}
+.shade{position:absolute;left:0;right:0;bottom:0;height:40%;background:linear-gradient(transparent,rgba(0,0,0,.72));pointer-events:none}
+.meta{position:absolute;left:18px;right:90px;bottom:calc(var(--bot) + 26px);pointer-events:none}
+.meta b{display:block;font-size:1rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.meta span{font-size:.82rem;color:var(--dim)}
+.side{position:absolute;right:10px;bottom:calc(var(--bot) + 40px);display:flex;flex-direction:column;gap:14px;align-items:center}
+.side button{width:50px;height:50px;border-radius:50%;background:var(--glass);backdrop-filter:blur(10px);display:grid;place-items:center}
+.side svg{width:26px;height:26px;fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.like.on svg{fill:var(--accent);stroke:var(--accent)}
+.bar{position:absolute;left:0;right:0;bottom:var(--bot);height:3px;background:rgba(255,255,255,.18)}
+.bar i{display:block;height:100%;width:0;background:var(--ink)}
+.state{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.state svg{width:84px;height:84px;fill:rgba(255,255,255,.9);opacity:0;transform:scale(.7);transition:opacity .2s,transform .2s;filter:drop-shadow(0 2px 12px #0008)}
+.slide.paused .state svg{opacity:1;transform:scale(1)}
+.heart{position:absolute;width:110px;height:110px;margin:-55px 0 0 -55px;fill:var(--accent);pointer-events:none;animation:pop .7s ease-out forwards}
+@keyframes pop{0%{opacity:0;transform:scale(.3)}25%{opacity:1;transform:scale(1.1)}100%{opacity:0;transform:scale(1.5) translateY(-30px)}}
+
+/* Üst çubuk */
+#top{position:fixed;left:0;right:0;top:0;z-index:5;display:none;justify-content:space-between;align-items:center;
+  padding:calc(var(--top) + 10px) 14px 24px;background:linear-gradient(rgba(0,0,0,.55),transparent);pointer-events:none}
+#top *{pointer-events:auto}
+#top h2{font-size:1.15rem;font-weight:800;letter-spacing:-.01em}
+#top .tools{display:flex;gap:8px}
+#top button{height:40px;min-width:40px;padding:0 12px;border-radius:999px;background:var(--glass);backdrop-filter:blur(10px);font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:6px}
+#top button.on{background:var(--ink);color:#000}
+#top svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@media (prefers-reduced-motion:reduce){.heart{animation-duration:.01s}.state svg{transition:none}}
+</style>
+</head>
+<body>
+
+<section id="empty">
+  <h1>Galerin, akıyor.</h1>
+  <p id="empty-desc">Fotoğraf ve videolarını sunucusuz, doğrudan cihazından tam ekran ve yukarı kaydırarak izle.</p>
+  <button class="cta" id="pick">Galeriden medya seç</button>
+  <small>Hiçbir dosya cihazından dışarı çıkmaz.</small>
+</section>
+
+<header id="top">
+  <h2>Akış</h2>
+  <div class="tools">
+    <button id="btnMute" aria-label="Sesi aç/kapat"></button>
+    <button id="btnShuffle" aria-label="Karıştır">
+      <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>Karıştır</button>
+    <button id="btnAdd" aria-label="Medya ekle"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  </div>
+</header>
+
+<main id="feed"></main>
+<input id="file" type="file" accept="image/*,video/*" multiple hidden>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const feed = $('#feed'), empty = $('#empty'), top = $('#top'), input = $('#file');
+  const ICON_MUTE = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></svg>';
+  const ICON_SOUND = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
+  const HEART = '<svg viewBox="0 0 24 24"><path d="M12 21s-8-5.3-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg>';
+  const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
+
+  let files = [], urls = new Map(), shuffle = false, muted = true, total = 0, order = [];
+  let likes = new Set();
+  try { likes = new Set(JSON.parse(localStorage.getItem('likes') || '[]')); } catch (e) {}
+  const saveLikes = () => { try { localStorage.setItem('likes', JSON.stringify([...likes])); } catch (e) {} };
+  const keyOf = f => (f.name || f.identifier) + '|' + (f.size || 0) + '|' + (f.lastModified || 0);
+  const fmtDate = f => {
+    const ts = f.lastModified || f.creationDate;
+    return ts ? new Date(ts).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  };
+
+  const mkOrder = () => {
+    const o = files.map((_, i) => i);
+    if (shuffle) for (let i = o.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [o[i], o[j]] = [o[j], o[i]]; }
+    return o;
+  };
+
+  function setMuteIcon() {
+    $('#btnMute').innerHTML = muted ? ICON_MUTE : ICON_SOUND;
+    $('#btnMute').classList.toggle('on', !muted);
+    document.querySelectorAll('video').forEach(v => v.muted = muted);
+  }
+
+  function addRound() {
+    order = mkOrder();
+    const frag = document.createDocumentFragment();
+    order.forEach(fi => {
+      const f = files[fi], s = document.createElement('section');
+      s.className = 'slide'; s.dataset.fi = fi; s.dataset.n = total++;
+      s.innerHTML = '<div class="shade"></div><div class="state">' + PLAY + '</div>' +
+        '<div class="meta"><b></b><span></span></div>' +
+        '<div class="side"><button class="like" aria-label="Beğen">' + HEART + '</button></div>' +
+        (f.type.startsWith('video') ? '<div class="bar"><i></i></div>' : '');
+      s.querySelector('b').textContent = f.name || 'Galeri Medyası';
+      s.querySelector('span').textContent = fmtDate(f);
+      if (likes.has(keyOf(f))) s.querySelector('.like').classList.add('on');
+      frag.appendChild(s); near.observe(s); active.observe(s);
+    });
+    feed.appendChild(frag);
+  }
+
+  const near = new IntersectionObserver(es => es.forEach(e => {
+    e.isIntersecting ? load(e.target) : unload(e.target);
+  }), { root: feed, rootMargin: '100% 0px' });
+
+  function load(s) {
+    if (s.querySelector('.media')) return;
+    const f = files[s.dataset.fi];
+    let u;
+    if (f.isCapacitorMedia) {
+      u = f.webPath;
+    } else {
+      u = urls.get(f); if (!u) { u = URL.createObjectURL(f); urls.set(f, u); }
+    }
+    let m;
+    if (f.type.startsWith('video')) {
+      m = document.createElement('video');
+      Object.assign(m, { loop: true, muted, playsInline: true, preload: 'auto' });
+      m.setAttribute('playsinline', ''); m.src = u;
+      m.addEventListener('loadedmetadata', () => s.classList.toggle('cover', m.videoHeight > m.videoWidth));
+      const bar = s.querySelector('.bar i');
+      m.addEventListener('timeupdate', () => { if (bar && m.duration) bar.style.width = (m.currentTime / m.duration * 100) + '%'; });
+    } else {
+      m = new Image(); m.decoding = 'async'; m.src = u;
+      m.addEventListener('load', () => s.classList.toggle('cover', m.naturalHeight > m.naturalWidth));
+    }
+    m.className = 'media'; s.prepend(m);
+  }
+  function unload(s) {
+    const m = s.querySelector('.media'); if (!m) return;
+    if (m.tagName === 'VIDEO') { m.pause(); m.removeAttribute('src'); m.load(); }
+    m.remove(); s.classList.remove('paused');
+  }
+
+  const active = new IntersectionObserver(es => es.forEach(e => {
+    const s = e.target, v = s.querySelector('video');
+    if (e.isIntersecting) {
+      s.dataset.on = 1;
+      if (+s.dataset.n >= total - 3) addRound();
+      if (v) { v.currentTime = v.currentTime; play(v, s); }
+    } else {
+      delete s.dataset.on;
+      if (v) { v.pause(); v.currentTime = 0; }
+      s.classList.remove('paused');
+    }
+  }), { root: feed, threshold: .65 });
+
+  function play(v, s) {
+    load(s); const m = s.querySelector('video'); if (!m) return;
+    m.muted = muted;
+    const p = m.play(); if (p) p.catch(() => { muted = true; setMuteIcon(); m.muted = true; m.play().catch(() => {}); });
+    s.classList.remove('paused');
+  }
+
+  let tapT = 0, tapTimer = null;
+  feed.addEventListener('click', e => {
+    const s = e.target.closest('.slide'); if (!s) return;
+    if (e.target.closest('.like')) {
+      const f = files[s.dataset.fi], k = keyOf(f), b = e.target.closest('.like');
+      likes.has(k) ? likes.delete(k) : likes.add(k); b.classList.toggle('on', likes.has(k)); saveLikes(); return;
+    }
+    const now = Date.now();
+    if (now - tapT < 280) {
+      clearTimeout(tapTimer); tapT = 0;
+      const f = files[s.dataset.fi], k = keyOf(f); likes.add(k); saveLikes();
+      s.querySelector('.like').classList.add('on');
+      const r = s.getBoundingClientRect(), h = document.createElement('div');
+      h.innerHTML = HEART; const svg = h.firstChild; svg.classList.add('heart');
+      svg.style.left = (e.clientX - r.left) + 'px'; svg.style.top = (e.clientY - r.top) + 'px';
+      s.appendChild(svg); setTimeout(() => svg.remove(), 700);
+      return;
+    }
+    tapT = now;
+    tapTimer = setTimeout(() => {
+      const v = s.querySelector('video'); if (!v) return;
+      if (v.paused) { v.play().catch(() => {}); s.classList.remove('paused'); }
+      else { v.pause(); s.classList.add('paused'); }
+    }, 280);
+  });
+
+  function start(list) {
+    files = list.filter(f => /^(image|video)\//.test(f.type));
+    if (!files.length) { alert('Görsel veya video bulunamadı.'); return; }
+    urls.forEach(u => URL.revokeObjectURL(u)); urls.clear();
+    feed.innerHTML = ''; total = 0; addRound();
+    empty.style.display = 'none'; feed.style.display = 'block'; top.style.display = 'flex';
+    feed.scrollTop = 0; setMuteIcon();
+  }
+
+  input.addEventListener('change', () => { if (input.files.length) start([...input.files]); input.value = ''; });
+  $('#pick').onclick = $('#btnAdd').onclick = () => input.click();
+  $('#btnMute').onclick = () => { muted = !muted; setMuteIcon(); };
+  $('#btnShuffle').onclick = e => { shuffle = !shuffle; e.currentTarget.classList.toggle('on', shuffle); if (files.length) start(files); };
+
+  /* Capacitor Otomatik Galeri Tarama Başlangıcı */
+  async function initCapacitorGallery() {
+    if (window.Capacitor && window.Capacitor.Plugins.Media) {
+      try {
+        const media = window.Capacitor.Plugins.Media;
+        const perm = await media.requestPermissions();
+        if (perm.photos === 'granted' || perm.access === 'granted' || perm.photos === 'limited') {
+          const res = await media.getPhotos({ limit: 150 });
+          if (res && res.photos && res.photos.length > 0) {
+            const deviceFiles = res.photos.map(p => {
+              const isVid = /\.(mp4|mov|webm|m4v|3gp)$/i.test(p.identifier || p.webPath || '');
+              return {
+                name: p.identifier ? p.identifier.split('/').pop() : 'Galeri Medyası',
+                size: 0,
+                lastModified: p.creationDate || Date.now(),
+                type: isVid ? 'video/mp4' : 'image/jpeg',
+                webPath: p.webPath,
+                isCapacitorMedia: true
+              };
+            });
+            start(deviceFiles);
+          }
+        }
+      } catch (e) {
+        console.error("Otomatik galeri okuma hatası:", e);
+      }
+    }
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    document.querySelectorAll('video').forEach(v => { if (document.hidden) v.pause(); });
+    if (!document.hidden) { const s = document.querySelector('.slide[data-on]'); const v = s && s.querySelector('video'); if (v && !s.classList.contains('paused')) v.play().catch(() => {}); }
+  });
+
+  setMuteIcon();
+  
+  // Uygulama açılır açılmaz otomatik taramayı dene
+  initCapacitorGallery();
+})();
+</script>
+</body>
+</html>
