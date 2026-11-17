@@ -3,6 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -17,42 +18,58 @@ jobs:
       with:
         node-version: 20
 
-    - name: Java (JDK) Kur
+    # Capacitor 7 Android derlemesi JDK 21 ister (17 ile "invalid source release: 21" hatası verir)
+    - name: Java (JDK 21) Kur
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '17'
+        java-version: '21'
 
-    - name: Web Klasörünü Otomatik Hazırla
+    - name: Web Klasörünü Hazırla
       run: |
         mkdir -p www
         cp index.html www/
 
-    - name: Bağımlılıkları Yükle ve Projeyi Başlat
+    # CLI paketleri kurulmadan "npx cap" çalışmaz (npx yanlış bir "cap" paketi indirmeye çalışır).
+    # Sürümler sabit: Capacitor 7 + media eklentisi v8.
+    - name: Bağımlılıkları Kur
       run: |
-        npm install
-        npx cap init Galascrol com.ornek.galascrol --web-dir=www
-        npm install @capacitor-community/media
+        [ -f package.json ] || npm init -y
+        npm install --no-audit --no-fund @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor-community/media@8
+
+    # androidGalleryMode olmadan eklenti SADECE kendi albümlerini görür, tüm galeriyi görmez.
+    - name: Capacitor Ayarını Yaz
+      run: |
+        cat > capacitor.config.json <<'JSON'
+        {
+          "appId": "com.ornek.galascrol",
+          "appName": "Galascrol",
+          "webDir": "www",
+          "plugins": {
+            "Media": {
+              "androidGalleryMode": true
+            }
+          }
+        }
+        JSON
+        cat capacitor.config.json
 
     - name: Android Platformunu Ekle ve Senkronize Et
       run: |
         npx cap add android
         npx cap sync android
 
-    - name: Android İzinlerini Otomatik Ekle
+    - name: Android İzinlerini Ekle
       run: |
-        python3 -c '
+        python3 - <<'PY'
         path = "android/app/src/main/AndroidManifest.xml"
-        with open(path, "r") as f:
-            content = f.read()
-        perms = """    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" />
-            <uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />
-            <uses-permission android:name=\"android.permission.READ_MEDIA_VIDEO\" />
-        </manifest>"""
-        content = content.replace("</manifest>", perms)
-        with open(path, "w") as f:
-            f.write(content)
-        '
+        s = open(path, encoding="utf-8").read()
+        perms = ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
+        add = "".join('    <uses-permission android:name="android.permission.%s" />\n' % p for p in perms if p not in s)
+        s = s.replace("</manifest>", add + "</manifest>")
+        open(path, "w", encoding="utf-8").write(s)
+        print(s)
+        PY
 
     - name: Gradle ile APK Derle (Debug)
       run: |
@@ -60,7 +77,7 @@ jobs:
         chmod +x gradlew
         ./gradlew assembleDebug
 
-    - name: APK Dosyasını Kaydet (İndirilebilir Yap)
+    - name: APK Dosyasını Kaydet
       uses: actions/upload-artifact@v4
       with:
         name: app-debug-apk
