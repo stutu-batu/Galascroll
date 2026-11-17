@@ -1,0 +1,52 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Kodu Kopyala
+      uses: actions/checkout@v4
+
+    - name: Node.js Kur
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Java (JDK) Kur
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Web Klasörünü Otomatik Hazırla
+      run: |
+        mkdir -p www
+        cp index.html www/
+
+    - name: Bağımlılıkları Yükle ve Projeyi Başlat
+      run: |
+        npm install
+        npx cap init Galascrol com.ornek.galascrol --web-dir=www
+        npm install @capacitor-community/media
+
+    - name: Android Platformunu Ekle ve Senkronize Et
+      run: |
+        npx cap add android
+        npx cap sync android
+
+    - name: Gradle ile APK Derle (Debug)
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: APK Dosyasını Kaydet (İndirilebilir Yap)
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        path: android/app/build/outputs/apk/debug/app-debug.apk
