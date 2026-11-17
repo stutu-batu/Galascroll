@@ -15,15 +15,32 @@
 html,body{height:100%;background:var(--bg);color:var(--ink);overflow:hidden;overscroll-behavior:none}
 button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
-/* Boş durum */
-#empty{position:fixed;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
-  padding:calc(var(--top) + 32px) 28px calc(var(--bot) + 40px);
-  background:radial-gradient(120% 70% at 50% 0%,#2a1410 0%,#000 70%)}
-#empty h1{font-size:clamp(2.6rem,13vw,4.2rem);line-height:.95;font-weight:800;letter-spacing:-.03em;max-width:9ch}
-#empty p{margin:18px 0 28px;color:var(--dim);font-size:1.05rem;line-height:1.45;max-width:30ch}
-.cta{background:var(--accent);color:#1a0904;font-weight:700;font-size:1.1rem;padding:18px 24px;border-radius:999px;width:100%}
-.cta:active{transform:scale(.98)}
-#empty small{display:block;margin-top:14px;color:var(--dim);font-size:.85rem}
+/* Boş durum (Yükleniyor / Karşılama ekranı) */
+#empty{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:#000;padding:28px;text-align:center;z-index:10}
+#empty small{color:var(--dim);font-size:.9rem;letter-spacing:.02em}
+
+/* Parlayan Yükleniyor Topları (Spinner) */
+.spinner {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.spinner div {
+  width: 14px;
+  height: 14px;
+  background-color: var(--accent);
+  border-radius: 50%;
+  animation: pulseGlow 1.4s infinite ease-in-out both;
+  box-shadow: 0 0 10px var(--accent);
+}
+.spinner div:nth-child(1) { animation-delay: -0.32s; }
+.spinner div:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes pulseGlow {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; box-shadow: 0 0 2px var(--accent); }
+  40% { transform: scale(1.0); opacity: 1; box-shadow: 0 0 16px var(--accent); }
+}
 
 /* Akış */
 #feed{position:fixed;inset:0;overflow-y:scroll;scroll-snap-type:y mandatory;scrollbar-width:none;display:none}
@@ -39,6 +56,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 .side button{width:50px;height:50px;border-radius:50%;background:var(--glass);backdrop-filter:blur(10px);display:grid;place-items:center}
 .side svg{width:26px;height:26px;fill:none;stroke:var(--ink);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .like.on svg{fill:var(--accent);stroke:var(--accent)}
+.trash svg{stroke:#ff4d4d}
 .bar{position:absolute;left:0;right:0;bottom:var(--bot);height:3px;background:rgba(255,255,255,.18)}
 .bar i{display:block;height:100%;width:0;background:var(--ink)}
 .state{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
@@ -62,9 +80,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <body>
 
 <section id="empty">
-  <h1>Galerin, akıyor.</h1>
-  <p id="empty-desc">Fotoğraf ve videolarını sunucusuz, doğrudan cihazından tam ekran ve yukarı kaydırarak izle.</p>
-  <button class="cta" id="pick">Galeriden medya seç</button>
+  <div class="spinner">
+    <div></div>
+    <div></div>
+    <div></div>
+  </div>
   <small>Hiçbir dosya cihazından dışarı çıkmaz.</small>
 </section>
 
@@ -74,7 +94,6 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     <button id="btnMute" aria-label="Sesi aç/kapat"></button>
     <button id="btnShuffle" aria-label="Karıştır">
       <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>Karıştır</button>
-    <button id="btnAdd" aria-label="Medya ekle"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
   </div>
 </header>
 
@@ -88,6 +107,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   const ICON_MUTE = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></svg>';
   const ICON_SOUND = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
   const HEART = '<svg viewBox="0 0 24 24"><path d="M12 21s-8-5.3-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg>';
+  const TRASH = '<svg viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>';
   const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
 
   let files = [], urls = new Map(), shuffle = false, muted = true, total = 0, order = [];
@@ -120,7 +140,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       s.className = 'slide'; s.dataset.fi = fi; s.dataset.n = total++;
       s.innerHTML = '<div class="shade"></div><div class="state">' + PLAY + '</div>' +
         '<div class="meta"><b></b><span></span></div>' +
-        '<div class="side"><button class="like" aria-label="Beğen">' + HEART + '</button></div>' +
+        '<div class="side">' +
+          '<button class="like" aria-label="Beğen">' + HEART + '</button>' +
+          '<button class="trash" aria-label="Cihazdan Sil">' + TRASH + '</button>' +
+        '</div>' +
         (f.type.startsWith('video') ? '<div class="bar"><i></i></div>' : '');
       s.querySelector('b').textContent = f.name || 'Galeri Medyası';
       s.querySelector('span').textContent = fmtDate(f);
@@ -137,12 +160,9 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   function load(s) {
     if (s.querySelector('.media')) return;
     const f = files[s.dataset.fi];
-    let u;
-    if (f.isCapacitorMedia) {
-      u = f.webPath;
-    } else {
-      u = urls.get(f); if (!u) { u = URL.createObjectURL(f); urls.set(f, u); }
-    }
+    if (!f) return;
+    let u = f.isCapacitorMedia ? f.webPath : urls.get(f);
+    if (!u && !f.isCapacitorMedia) { u = URL.createObjectURL(f); urls.set(f, u); }
     let m;
     if (f.type.startsWith('video')) {
       m = document.createElement('video');
@@ -184,12 +204,40 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   }
 
   let tapT = 0, tapTimer = null;
-  feed.addEventListener('click', e => {
+  feed.addEventListener('click', async e => {
     const s = e.target.closest('.slide'); if (!s) return;
+    
+    // Beğeni tuşu
     if (e.target.closest('.like')) {
       const f = files[s.dataset.fi], k = keyOf(f), b = e.target.closest('.like');
       likes.has(k) ? likes.delete(k) : likes.add(k); b.classList.toggle('on', likes.has(k)); saveLikes(); return;
     }
+
+    // Çöpe atma / Cihazdan silme tuşu
+    if (e.target.closest('.trash')) {
+      const fi = s.dataset.fi;
+      const f = files[fi];
+      if (confirm('Bu medyayı cihaz hafızasından kalıcı olarak silmek istiyor musunuz?')) {
+        try {
+          if (f.isCapacitorMedia && window.Capacitor && window.Capacitor.Plugins.Media) {
+            // Cihazdan resmi/videoyu sil
+            await window.Capacitor.Plugins.Media.deleteMedia({ photos: [f.identifier] });
+          }
+          // Akıştan ve listeden kaldır
+          s.remove();
+          files.splice(fi, 1);
+          if (files.length === 0) {
+            feed.style.display = 'none';
+            top.style.display = 'none';
+            empty.style.display = 'flex';
+          }
+        } catch (err) {
+          alert('Dosya silinirken hata oluştu veya izin verilmedi.');
+        }
+      }
+      return;
+    }
+
     const now = Date.now();
     if (now - tapT < 280) {
       clearTimeout(tapTimer); tapT = 0;
@@ -218,39 +266,50 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     feed.scrollTop = 0; setMuteIcon();
   }
 
-  input.addEventListener('change', () => { if (input.files.length) start([...input.files]); input.value = ''; });
-  $('#pick').onclick = $('#btnAdd').onclick = () => input.click();
   $('#btnMute').onclick = () => { muted = !muted; setMuteIcon(); };
   $('#btnShuffle').onclick = e => { shuffle = !shuffle; e.currentTarget.classList.toggle('on', shuffle); if (files.length) start(files); };
 
-  /* Capacitor Otomatik Galeri Tarama Başlangıcı */
+  /* Bütün Galeriyi Sınırsız / Tekte Çekme (Capacitor Media) */
   async function initCapacitorGallery() {
     if (window.Capacitor && window.Capacitor.Plugins.Media) {
       try {
         const media = window.Capacitor.Plugins.Media;
         const perm = await media.requestPermissions();
         if (perm.photos === 'granted' || perm.access === 'granted' || perm.photos === 'limited') {
-          const res = await media.getPhotos({ limit: 150 });
+          // Bütün galeriyi eksiksiz çekmek için limit değerini çok yüksek tutuyoruz (örn: 10000)
+          const res = await media.getPhotos({ quantity: 10000, limit: 10000 });
           if (res && res.photos && res.photos.length > 0) {
             const deviceFiles = res.photos.map(p => {
               const isVid = /\.(mp4|mov|webm|m4v|3gp)$/i.test(p.identifier || p.webPath || '');
               return {
                 name: p.identifier ? p.identifier.split('/').pop() : 'Galeri Medyası',
-                size: 0,
+                size: p.size || 0,
                 lastModified: p.creationDate || Date.now(),
                 type: isVid ? 'video/mp4' : 'image/jpeg',
                 webPath: p.webPath,
+                identifier: p.identifier,
                 isCapacitorMedia: true
               };
             });
             start(deviceFiles);
+          } else {
+            empty.innerHTML = '<small>Galeride hiç medya bulunamadı.</small>';
           }
+        } else {
+          empty.innerHTML = '<small>Galeri izni verilmediği için akış başlatılamadı.</small>';
         }
       } catch (e) {
-        console.error("Otomatik galeri okuma hatası:", e);
+        console.error("Galeri okuma hatası:", e);
+        empty.innerHTML = '<small>Galeri yüklenirken bir hata oluştu.</small>';
       }
+    } else {
+      // Tarayıcı ortamında test ediliyorsa yedek olarak dosya seçici göster
+      empty.innerHTML = '<button class="cta" id="pick" style="background:var(--accent);color:#1a0904;font-weight:700;font-size:1.1rem;padding:18px 24px;border-radius:999px;width:100%;max-width:300px;cursor:pointer;">Galeriden medya seç</button><small style="margin-top:14px;">Hiçbir dosya cihazından dışarı çıkmaz.</small>';
+      $('#pick').onclick = () => input.click();
     }
   }
+
+  input.addEventListener('change', () => { if (input.files.length) start([...input.files]); input.value = ''; });
 
   document.addEventListener('visibilitychange', () => {
     document.querySelectorAll('video').forEach(v => { if (document.hidden) v.pause(); });
@@ -258,8 +317,6 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   });
 
   setMuteIcon();
-  
-  // Uygulama açılır açılmaz otomatik taramayı dene
   initCapacitorGallery();
 })();
 </script>
