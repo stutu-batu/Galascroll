@@ -121,7 +121,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   };
 
   const mkOrder = () => {
-    const o = files.map((_, i) => i);
+    const o = files.map((_, i) => i).filter(i => !files[i].deleted);
     if (shuffle) for (let i = o.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [o[i], o[j]] = [o[j], o[i]]; }
     return o;
   };
@@ -161,8 +161,30 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     if (s.querySelector('.media')) return;
     const f = files[s.dataset.fi];
     if (!f) return;
-    let u = f.isCapacitorMedia ? f.webPath : urls.get(f);
-    if (!u && !f.isCapacitorMedia) { u = URL.createObjectURL(f); urls.set(f, u); }
+    let u;
+    if (f.isCapacitorMedia) {
+      if (f.thumb) s.style.background = '#000 url(' + f.thumb + ') center/contain no-repeat';
+      if (!f.webPath) {
+        const fi = s.dataset.fi;
+        if (!f.resolving) {
+          f.resolving = resolvePath(f).catch(e => { f.err = String((e && e.message) || e); })
+            .finally(() => {
+              f.resolving = null;
+              document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => {
+                if (f.webPath && !x.querySelector('.media') && (x.dataset.on || x === s)) {
+                  load(x); if (x.dataset.on) { const v = x.querySelector('video'); if (v) play(v, x); }
+                }
+              });
+              if (f.err) banner('Dosya açılamadı: ' + f.err);
+            });
+        }
+        return;
+      }
+      u = f.webPath;
+    } else {
+      u = urls.get(f);
+      if (!u) { u = URL.createObjectURL(f); urls.set(f, u); }
+    }
     let m;
     if (f.type.startsWith('video')) {
       m = document.createElement('video');
@@ -219,20 +241,20 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       const f = files[fi];
       if (confirm('Bu medyayı cihaz hafızasından kalıcı olarak silmek istiyor musunuz?')) {
         try {
-          if (f.isCapacitorMedia && window.Capacitor && window.Capacitor.Plugins.Media) {
-            // Cihazdan resmi/videoyu sil
-            await window.Capacitor.Plugins.Media.deleteMedia({ photos: [f.identifier] });
+          if (f.isCapacitorMedia) {
+            const M = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Media;
+            if (!M) throw new Error('Media eklentisi yok');
+            await M.deleteMedia({ identifier: f.identifier });
           }
-          // Akıştan ve listeden kaldır
-          s.remove();
-          files.splice(fi, 1);
-          if (files.length === 0) {
+          f.deleted = true;
+          document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => x.remove());
+          if (files.every(x => x.deleted)) {
             feed.style.display = 'none';
             top.style.display = 'none';
             empty.style.display = 'flex';
           }
         } catch (err) {
-          alert('Dosya silinirken hata oluştu veya izin verilmedi.');
+          alert('Silinemedi: ' + String((err && err.message) || err));
         }
       }
       return;
@@ -269,44 +291,76 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   $('#btnMute').onclick = () => { muted = !muted; setMuteIcon(); };
   $('#btnShuffle').onclick = e => { shuffle = !shuffle; e.currentTarget.classList.toggle('on', shuffle); if (files.length) start(files); };
 
-  /* Bütün Galeriyi Sınırsız / Tekte Çekme (Capacitor Media) */
+  /* ---------- Hata/teşhis yardımcıları (APK'da logcat yok, hatayı ekranda göster) ---------- */
+  const describe = e => { if (!e) return 'bilinmeyen hata'; try { return (e.message || e.errorMessage || JSON.stringify(e)) + (e.code ? ' [' + e.code + ']' : ''); } catch (_) { return String(e); } };
+  function banner(t) {
+    let b = $('#errbar');
+    if (!b) { b = document.createElement('div'); b.id = 'errbar';
+      b.style.cssText = 'position:fixed;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);z-index:99;background:#7a1a0c;color:#fff;padding:10px 12px;border-radius:12px;font-size:.8rem;word-break:break-word';
+      b.onclick = () => b.remove(); document.body.appendChild(b); }
+    b.textContent = t;
+  }
+  window.addEventListener('error', e => banner('JS hatası: ' + e.message));
+  window.addEventListener('unhandledrejection', e => banner('Hata: ' + describe(e.reason)));
+
+  function showMsg(title, detail, canRetry) {
+    feed.style.display = 'none'; top.style.display = 'none';
+    empty.style.cssText = 'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px';
+    const btn = 'margin-top:12px;padding:14px 22px;border-radius:999px;font-weight:700;font-size:1rem;width:100%;max-width:300px;';
+    empty.innerHTML = '<b style="font-size:1.15rem"></b><p style="margin:12px 0 8px;color:var(--dim);font-size:.85rem;line-height:1.45;max-width:320px;word-break:break-word"></p>' +
+      (canRetry ? '<button id="retry" style="' + btn + 'background:#ff5a3c;color:#1a0904">Tekrar dene</button>' : '') +
+      '<button id="pick" style="' + btn + 'background:rgba(255,255,255,.14);color:#f5f1ea">Dosyaları elle seç</button>';
+    empty.querySelector('b').textContent = title;
+    empty.querySelector('p').textContent = detail || '';
+    $('#pick').onclick = () => input.click();
+    if (canRetry) $('#retry').onclick = () => { location.reload(); };
+  }
+
+  /* ---------- Galeri (@capacitor-community/media) ---------- */
+  async function resolvePath(f) {
+    if (f.webPath) return f.webPath;
+    const C = window.Capacitor, M = C.Plugins.Media; let path = null;
+    try { const r = await M.getMediaByIdentifier({ identifier: f.identifier }); path = r && (r.path || r.webPath); } catch (e) { /* identifier zaten yol olabilir */ }
+    if (!path && f.identifier && f.identifier.charAt(0) === '/') path = f.identifier;
+    if (!path) throw new Error('dosya yolu alınamadı (' + f.identifier + ')');
+    f.webPath = /^(https?|capacitor|blob|data):/.test(path) ? path : C.convertFileSrc(path.indexOf('file://') === 0 ? path : 'file://' + path);
+    return f.webPath;
+  }
+
   async function initCapacitorGallery() {
-    if (window.Capacitor && window.Capacitor.Plugins.Media) {
-      try {
-        const media = window.Capacitor.Plugins.Media;
-        const perm = await media.requestPermissions();
-        if (perm.photos === 'granted' || perm.access === 'granted' || perm.photos === 'limited') {
-          // Bütün galeriyi eksiksiz çekmek için limit değerini çok yüksek tutuyoruz (örn: 10000)
-          const res = await media.getPhotos({ quantity: 10000, limit: 10000 });
-          if (res && res.photos && res.photos.length > 0) {
-            const deviceFiles = res.photos.map(p => {
-              const isVid = /\.(mp4|mov|webm|m4v|3gp)$/i.test(p.identifier || p.webPath || '');
-              return {
-                name: p.identifier ? p.identifier.split('/').pop() : 'Galeri Medyası',
-                size: p.size || 0,
-                lastModified: p.creationDate || Date.now(),
-                type: isVid ? 'video/mp4' : 'image/jpeg',
-                webPath: p.webPath,
-                identifier: p.identifier,
-                isCapacitorMedia: true
-              };
-            });
-            start(deviceFiles);
-          } else {
-            empty.innerHTML = '<small>Galeride hiç medya bulunamadı.</small>';
-          }
-        } else {
-          empty.innerHTML = '<small>Galeri izni verilmediği için akış başlatılamadı.</small>';
-        }
-      } catch (e) {
-        console.error("Galeri okuma hatası:", e);
-        empty.innerHTML = '<small>Galeri yüklenirken bir hata oluştu.</small>';
-      }
-    } else {
-      // Tarayıcı ortamında test ediliyorsa yedek olarak dosya seçici göster
-      empty.innerHTML = '<button class="cta" id="pick" style="background:var(--accent);color:#1a0904;font-weight:700;font-size:1.1rem;padding:18px 24px;border-radius:999px;width:100%;max-width:300px;cursor:pointer;">Galeriden medya seç</button><small style="margin-top:14px;">Hiçbir dosya cihazından dışarı çıkmaz.</small>';
-      $('#pick').onclick = () => input.click();
+    const C = window.Capacitor;
+    if (!C || !(C.isNativePlatform ? C.isNativePlatform() : false)) {
+      showMsg('Tarayıcı modu', 'Galeri otomatik okunamıyor. Dosyaları elle seçebilirsiniz.', false); return;
     }
+    const M = C.Plugins && C.Plugins.Media;
+    if (!M) { showMsg('Media eklentisi bulunamadı', '@capacitor-community/media APK\'ya eklenmemiş. package.json\'a ekleyip "npx cap sync android" çalıştırın.', false); return; }
+
+    // İzin sonucunun anahtar adı sürüme göre değişir; sonucu kapı olarak kullanma, sadece iste.
+    try { if (typeof M.requestPermissions === 'function') await M.requestPermissions(); } catch (e) { console.warn('izin:', e); }
+
+    const Q = 500; let items = null, lastErr = null;
+    const attempts = [
+      async () => (await M.getMedias({ quantity: Q, types: 'all', thumbnailWidth: 96, thumbnailHeight: 96, thumbnailQuality: 40 })).medias,
+      async () => (await M.getMedias({ quantity: Q })).medias,
+      async () => (await M.getPhotos({ quantity: Q })).photos
+    ];
+    for (const a of attempts) {
+      try { const r = await a(); if (Array.isArray(r)) { items = r; break; } } catch (e) { lastErr = e; }
+    }
+    if (!items) { showMsg('Galeri okunamadı', 'Hata: ' + describe(lastErr), true); return; }
+    if (!items.length) { showMsg('Galeri boş görünüyor', 'Medya bulunamadı ya da izin verilmedi. Telefon Ayarları > Uygulamalar > izinler bölümünden "Fotoğraflar ve videolar" iznini açın.', true); return; }
+
+    const toMs = d => !d ? Date.now() : typeof d === 'number' ? (d < 1e12 ? d * 1000 : d) : (Date.parse(d) || Date.now());
+    start(items.map(p => {
+      const id = p.identifier || '';
+      const vid = p.mediaType === 'video' || /\.(mp4|mov|webm|m4v|3gp|mkv)$/i.test(id);
+      return {
+        name: id.split('/').pop() || 'Galeri medyası', size: 0, lastModified: toMs(p.creationDate),
+        type: vid ? 'video/mp4' : 'image/jpeg', identifier: id,
+        thumb: p.data ? 'data:image/jpeg;base64,' + p.data : null,
+        webPath: p.webPath || null, isCapacitorMedia: true
+      };
+    }));
   }
 
   input.addEventListener('change', () => { if (input.files.length) start([...input.files]); input.value = ''; });
