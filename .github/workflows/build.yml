@@ -31,11 +31,11 @@ jobs:
         cp index.html www/
 
     # CLI paketleri kurulmadan "npx cap" çalışmaz (npx yanlış bir "cap" paketi indirmeye çalışır).
-    # Sürümler sabit: Capacitor 7 + media eklentisi v8.
+    # Sürümler sabit: Capacitor 7 + filesystem 7 + media eklentisi v8.
     - name: Bağımlılıkları Kur
       run: |
         [ -f package.json ] || npm init -y
-        npm install --no-audit --no-fund @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor-community/media@8
+        npm install --no-audit --no-fund @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7 @capacitor-community/media@8
 
     # androidGalleryMode olmadan eklenti SADECE kendi albümlerini görür, tüm galeriyi görmez.
     - name: Capacitor Ayarını Yaz
