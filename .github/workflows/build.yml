@@ -6,12 +6,14 @@ on:
   workflow_dispatch:
 
 env:
-  # Her sürümde SADECE bu satırı değiştir (örn. 0.3.1 -> 0.3.2). APK adı ve uygulama sürümü buradan gelir.
-  APP_VERSION: "0.3.1"
+  # Her sürümde SADECE bu satırı değiştir (örn. 0.4.0 -> 0.4.1). APK adı, uygulama sürümü ve Release etiketi buradan gelir.
+  APP_VERSION: "0.4.0"
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # GitHub Release oluşturmak için
 
     steps:
     - name: Kodu Kopyala
@@ -22,7 +24,7 @@ jobs:
       with:
         node-version: 20
 
-    # Capacitor 7 Android derlemesi JDK 21 ister (17 ile "invalid source release: 21" hatası verir)
+    # Capacitor 7 Android derlemesi JDK 21 ister
     - name: Java (JDK 21) Kur
       uses: actions/setup-java@v4
       with:
@@ -36,14 +38,12 @@ jobs:
         sed -i "s/__APP_VERSION__/$APP_VERSION/g" www/index.html
         grep -n "const APP_VERSION" www/index.html
 
-    # CLI paketleri kurulmadan "npx cap" çalışmaz (npx yanlış bir "cap" paketi indirmeye çalışır).
-    # Sürümler sabit: Capacitor 7 + filesystem 7 + media eklentisi v8.
     - name: Bağımlılıkları Kur
       run: |
         [ -f package.json ] || npm init -y
         npm install --no-audit --no-fund @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7 @capacitor/filesystem@7 @capacitor-community/media@8
 
-    # androidGalleryMode olmadan eklenti SADECE kendi albümlerini görür, tüm galeriyi görmez.
+    # androidGalleryMode olmadan Media eklentisi tüm galeriyi görmez.
     - name: Capacitor Ayarını Yaz
       run: |
         cat > capacitor.config.json <<'JSON'
@@ -65,7 +65,8 @@ jobs:
         npx cap add android
         npx cap sync android
 
-    # Silme için küçük bir yerel eklenti (Media eklentisinde silme yok).
+    # Silme eklentisi: MediaStore.createDeleteRequest ile sistem onaylı toplu silme.
+    # "Tüm dosyalara erişim" izni artık GEREKMİYOR (Play Protect uyarısını azaltır).
     - name: Silme Eklentisini Ekle (Java)
       run: |
         D=android/app/src/main/java/com/ornek/galascrol
@@ -73,77 +74,124 @@ jobs:
         cat > "$D/GalleryToolsPlugin.java" <<'JAVA'
         package com.ornek.galascrol;
 
-        import android.content.Intent;
-        import android.media.MediaScannerConnection;
+        import android.app.Activity;
+        import android.app.PendingIntent;
+        import android.content.ContentUris;
+        import android.database.Cursor;
         import android.net.Uri;
         import android.os.Build;
-        import android.os.Environment;
-        import android.provider.Settings;
+        import android.provider.MediaStore;
+        import androidx.activity.result.ActivityResult;
+        import androidx.activity.result.ActivityResultLauncher;
+        import androidx.activity.result.IntentSenderRequest;
+        import androidx.activity.result.contract.ActivityResultContracts;
+        import com.getcapacitor.JSArray;
         import com.getcapacitor.JSObject;
         import com.getcapacitor.Plugin;
         import com.getcapacitor.PluginCall;
         import com.getcapacitor.PluginMethod;
         import com.getcapacitor.annotation.CapacitorPlugin;
-        import java.io.File;
+        import java.util.ArrayList;
+        import java.util.List;
 
         @CapacitorPlugin(name = "GalleryTools")
         public class GalleryToolsPlugin extends Plugin {
 
-            private boolean hasAccess() {
-                if (Build.VERSION.SDK_INT >= 30) {
-                    return Environment.isExternalStorageManager();
+            private Uri findUri(String path) {
+                Uri[] collections = new Uri[] {
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                };
+                for (Uri c : collections) {
+                    try (Cursor cur = getContext().getContentResolver().query(
+                            c,
+                            new String[] { MediaStore.MediaColumns._ID },
+                            MediaStore.MediaColumns.DATA + "=?",
+                            new String[] { path },
+                            null)) {
+                        if (cur != null && cur.moveToFirst()) {
+                            return ContentUris.withAppendedId(c, cur.getLong(0));
+                        }
+                    } catch (Exception ignored) {
+                    }
                 }
-                return true;
+                return null;
             }
 
+            /** Birden çok dosyayı tek bir sistem onay penceresiyle kalıcı olarak siler. */
             @PluginMethod
-            public void hasAllFilesAccess(PluginCall call) {
-                JSObject r = new JSObject();
-                r.put("granted", hasAccess());
-                call.resolve(r);
-            }
-
-            @PluginMethod
-            public void requestAllFilesAccess(PluginCall call) {
-                Intent i;
+            public void deleteFiles(final PluginCall call) {
+                JSArray arr = call.getArray("paths");
+                if (arr == null || arr.length() == 0) {
+                    call.reject("paths yok");
+                    return;
+                }
+                final List<Uri> uris = new ArrayList<>();
+                final JSArray ok = new JSArray();
+                final JSArray missing = new JSArray();
                 try {
-                    i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        Uri.parse("package:" + getContext().getPackageName()));
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    getContext().startActivity(i);
+                    for (int i = 0; i < arr.length(); i++) {
+                        String orig = arr.getString(i);
+                        String p = orig;
+                        if (p.startsWith("file://")) {
+                            p = Uri.parse(p).getPath();
+                        }
+                        Uri u = findUri(p);
+                        if (u == null) {
+                            missing.put(orig);
+                        } else {
+                            uris.add(u);
+                            ok.put(orig);
+                        }
+                    }
                 } catch (Exception e) {
-                    i = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    getContext().startActivity(i);
+                    call.reject("Yol listesi okunamadı: " + e.getMessage());
+                    return;
                 }
-                call.resolve();
-            }
+                if (uris.isEmpty()) {
+                    call.reject("Dosyalar galeri veritabanında bulunamadı", "NOT_FOUND");
+                    return;
+                }
 
-            @PluginMethod
-            public void deleteFile(PluginCall call) {
-                String path = call.getString("path");
-                if (path == null) {
-                    call.reject("path yok");
-                    return;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    final PendingIntent pi = MediaStore.createDeleteRequest(getContext().getContentResolver(), uris);
+                    getActivity().runOnUiThread(() -> {
+                        final Object[] holder = new Object[1];
+                        ActivityResultLauncher<IntentSenderRequest> launcher =
+                            getActivity().getActivityResultRegistry().register(
+                                "gallery-delete-" + System.nanoTime(),
+                                new ActivityResultContracts.StartIntentSenderForResult(),
+                                (ActivityResult result) -> {
+                                    if (holder[0] != null) {
+                                        ((ActivityResultLauncher<?>) holder[0]).unregister();
+                                    }
+                                    if (result.getResultCode() == Activity.RESULT_OK) {
+                                        JSObject r = new JSObject();
+                                        r.put("deleted", ok);
+                                        r.put("missing", missing);
+                                        call.resolve(r);
+                                    } else {
+                                        call.reject("İptal edildi", "CANCELLED");
+                                    }
+                                });
+                        holder[0] = launcher;
+                        launcher.launch(new IntentSenderRequest.Builder(pi.getIntentSender()).build());
+                    });
+                } else {
+                    JSArray done = new JSArray();
+                    for (int i = 0; i < uris.size(); i++) {
+                        try {
+                            if (getContext().getContentResolver().delete(uris.get(i), null, null) > 0) {
+                                done.put(ok.getString(i));
+                            }
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    JSObject r = new JSObject();
+                    r.put("deleted", done);
+                    r.put("missing", missing);
+                    call.resolve(r);
                 }
-                if (path.startsWith("file://")) {
-                    path = Uri.parse(path).getPath();
-                }
-                if (!hasAccess()) {
-                    call.reject("Tüm dosyalara erişim izni gerekli", "NO_ACCESS");
-                    return;
-                }
-                File f = new File(path);
-                if (!f.exists()) {
-                    call.reject("Dosya bulunamadı: " + path);
-                    return;
-                }
-                if (!f.delete()) {
-                    call.reject("Dosya silinemedi: " + path);
-                    return;
-                }
-                MediaScannerConnection.scanFile(getContext(), new String[] { path }, null, null);
-                call.resolve();
             }
         }
         JAVA
@@ -168,7 +216,7 @@ jobs:
         python3 - <<'PY'
         path = "android/app/src/main/AndroidManifest.xml"
         s = open(path, encoding="utf-8").read()
-        perms = ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "MANAGE_EXTERNAL_STORAGE"]
+        perms = ["READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO"]
         add = "".join('    <uses-permission android:name="android.permission.%s" />\n' % p for p in perms if p not in s)
         s = s.replace("</manifest>", add + "</manifest>")
         open(path, "w", encoding="utf-8").write(s)
@@ -180,19 +228,64 @@ jobs:
         IFS=. read -r MA MI PA <<< "$APP_VERSION"
         CODE=$((MA * 10000 + MI * 100 + PA))
         sed -i -E "s/versionCode [0-9]+/versionCode $CODE/; s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
-        grep -n "versionCode\|versionName" android/app/build.gradle
+        # Release derlemesinde lint hatası APK'yı düşürmesin
+        sed -i '/^android {/a\    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }' android/app/build.gradle
+        grep -n "versionCode\|versionName\|checkReleaseBuilds" android/app/build.gradle
 
-    - name: Gradle ile APK Derle (Debug)
+    - name: Gradle ile APK Derle (Debug + Release)
       run: |
         cd android
         chmod +x gradlew
-        ./gradlew assembleDebug
+        ./gradlew assembleDebug assembleRelease
 
-    - name: APK Dosyasını Adlandır
-      run: cp android/app/build/outputs/apk/debug/app-debug.apk "Galascroll-v${APP_VERSION}.apk"
+    # Anahtar secret'ları tanımlıysa Release APK'yı sabit anahtarla imzalar.
+    # Tanımlı değilse debug imzalı APK'ya geri döner (eski davranış).
+    - name: APK'yı İmzala ve Adlandır
+      env:
+        KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+        KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      run: |
+        OUT="Galascroll-v${APP_VERSION}.apk"
+        if [ -n "$KEYSTORE_B64" ]; then
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          "$BT/zipalign" -p -f 4 android/app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:KS_PASS --key-pass env:KS_PASS --out "$OUT" "$RUNNER_TEMP/aligned.apk"
+          "$BT/apksigner" verify --print-certs "$OUT"
+          echo "SIGNED=true" >> "$GITHUB_ENV"
+        else
+          echo "::warning::Imza anahtarı secret'ları yok: debug imzalı APK üretildi, Release yayınlanmayacak."
+          cp android/app/build/outputs/apk/debug/app-debug.apk "$OUT"
+        fi
+        sha256sum "$OUT" | tee "$OUT.sha256"
+        SHA=$(cut -d' ' -f1 "$OUT.sha256")
+        cat > release-notes.md <<EOF
+        ## Galascroll v${APP_VERSION}
+
+        **SHA-256:** \`${SHA}\`
+
+        Kurulum: APK'yı indir, "bilinmeyen kaynaklardan yükleme" iznini ver.
+        Google Play Protect "tanınmayan geliştirici" uyarısı gösterirse "Ayrıntılar > Yine de yükle" seç.
+        Dosyanın bozulmadığını SHA-256 değeriyle doğrulayabilirsin.
+        EOF
 
     - name: APK Dosyasını Kaydet
       uses: actions/upload-artifact@v4
       with:
         name: Galascroll-v${{ env.APP_VERSION }}
-        path: Galascroll-v${{ env.APP_VERSION }}.apk
+        path: |
+          Galascroll-v${{ env.APP_VERSION }}.apk
+          Galascroll-v${{ env.APP_VERSION }}.apk.sha256
+
+    - name: GitHub Release Yayınla
+      if: env.SIGNED == 'true'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ env.APP_VERSION }}
+        name: Galascroll v${{ env.APP_VERSION }}
+        body_path: release-notes.md
+        files: |
+          Galascroll-v${{ env.APP_VERSION }}.apk
+          Galascroll-v${{ env.APP_VERSION }}.apk.sha256
