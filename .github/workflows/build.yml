@@ -5,6 +5,10 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+env:
+  # Her sürümde SADECE bu satırı değiştir (örn. 0.3.1 -> 0.3.2). APK adı ve uygulama sürümü buradan gelir.
+  APP_VERSION: "0.3.1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,6 +33,8 @@ jobs:
       run: |
         mkdir -p www
         cp index.html www/
+        sed -i "s/__APP_VERSION__/$APP_VERSION/g" www/index.html
+        grep -n "const APP_VERSION" www/index.html
 
     # CLI paketleri kurulmadan "npx cap" çalışmaz (npx yanlış bir "cap" paketi indirmeye çalışır).
     # Sürümler sabit: Capacitor 7 + filesystem 7 + media eklentisi v8.
@@ -42,7 +48,7 @@ jobs:
       run: |
         cat > capacitor.config.json <<'JSON'
         {
-          "appId": "com.ornek.galascroll",
+          "appId": "com.ornek.galascrol",
           "appName": "Galascroll",
           "webDir": "www",
           "plugins": {
@@ -169,14 +175,24 @@ jobs:
         print(s)
         PY
 
+    - name: Sürüm Numarasını Ayarla
+      run: |
+        IFS=. read -r MA MI PA <<< "$APP_VERSION"
+        CODE=$((MA * 10000 + MI * 100 + PA))
+        sed -i -E "s/versionCode [0-9]+/versionCode $CODE/; s/versionName \"[^\"]*\"/versionName \"$APP_VERSION\"/" android/app/build.gradle
+        grep -n "versionCode\|versionName" android/app/build.gradle
+
     - name: Gradle ile APK Derle (Debug)
       run: |
         cd android
         chmod +x gradlew
         ./gradlew assembleDebug
 
+    - name: APK Dosyasını Adlandır
+      run: cp android/app/build/outputs/apk/debug/app-debug.apk "Galascroll-v${APP_VERSION}.apk"
+
     - name: APK Dosyasını Kaydet
       uses: actions/upload-artifact@v4
       with:
-        name: Galascroll
-        path: android/app/build/outputs/apk/debug/app-debug.apk
+        name: Galascroll-v${{ env.APP_VERSION }}
+        path: Galascroll-v${{ env.APP_VERSION }}.apk
