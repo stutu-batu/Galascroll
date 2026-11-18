@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#000000">
-<title>Akış – Galeri</title>
+<title>Galascroll</title>
 <style>
 :root{
   --bg:#000; --ink:#f5f1ea; --dim:rgba(245,241,234,.62); --accent:#ff5a3c; --glass:rgba(20,20,20,.55);
@@ -89,7 +89,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 </section>
 
 <header id="top">
-  <h2>Akış</h2>
+  <h2>Galascroll <small id="ver" style="font-weight:500;font-size:.65rem;opacity:.6"></small></h2>
   <div class="tools">
     <button id="btnMute" aria-label="Sesi aç/kapat"></button>
     <button id="btnShuffle" aria-label="Karıştır">
@@ -102,6 +102,10 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
 <script>
 (() => {
+  const APP_VERSION = '__APP_VERSION__';   // build.yml bu değeri sürümle değiştirir
+  const hasPlugin = n => { const C = window.Capacitor; return !!C && (((C.PluginHeaders || []).some(h => h.name === n)) || !!(C.Plugins && C.Plugins[n])); };
+  const plug = n => { const C = window.Capacitor; return (C.Plugins && C.Plugins[n]) || (C.registerPlugin ? C.registerPlugin(n) : null); };
+  const pluginNames = () => ((window.Capacitor && window.Capacitor.PluginHeaders) || []).map(h => h.name).join(', ') || '(liste alınamadı)';
   const $ = s => document.querySelector(s);
   const feed = $('#feed'), empty = $('#empty'), top = $('#top'), input = $('#file');
   const ICON_MUTE = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></svg>';
@@ -242,11 +246,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       if (confirm('Bu medyayı cihaz hafızasından kalıcı olarak silmek istiyor musunuz?')) {
         try {
           if (f.isCapacitorMedia) {
-            const G = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GalleryTools;
-            if (!G) throw new Error('GalleryTools eklentisi APK içinde yok (build.yml güncel mi?)');
+            if (!hasPlugin('GalleryTools')) throw new Error('GalleryTools eklentisi bu APK içinde yok. Sürüm: v' + APP_VERSION + '. APK içindeki eklentiler: ' + pluginNames());
+            const G = plug('GalleryTools');
             const st = await G.hasAllFilesAccess();
             if (!st.granted) {
-              alert('Silmek için "Tüm dosyalara erişim" izni gerekli. Açılan ekranda Galascrol için izni açın, uygulamaya geri dönüp tekrar silin.');
+              alert('Silmek için "Tüm dosyalara erişim" izni gerekli. Açılan ekranda Galascroll için izni açın, uygulamaya geri dönüp tekrar silin.');
               await G.requestAllFilesAccess();
               return;
             }
@@ -313,7 +317,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       (canRetry ? '<button id="retry" style="' + btn + 'background:#ff5a3c;color:#1a0904">Tekrar dene</button>' : '') +
       '<button id="pick" style="' + btn + 'background:rgba(255,255,255,.14);color:#f5f1ea">Dosyaları elle seç</button>';
     empty.querySelector('b').textContent = title;
-    empty.querySelector('p').style.whiteSpace = 'pre-wrap'; empty.querySelector('p').textContent = detail || '';
+    empty.querySelector('p').style.whiteSpace = 'pre-wrap'; empty.querySelector('p').textContent = (detail || '') + '\n\nGalascroll v' + APP_VERSION;
     $('#pick').onclick = () => input.click();
     if (canRetry) $('#retry').onclick = () => { location.reload(); };
   }
@@ -354,7 +358,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     if (!C || !(C.isNativePlatform ? C.isNativePlatform() : false)) {
       showMsg('Tarayıcı modu', 'Galeri otomatik okunamıyor. Dosyaları elle seçebilirsiniz.', false); return;
     }
-    const M = C.Plugins && C.Plugins.Media, FS = C.Plugins && C.Plugins.Filesystem;
+    const M = hasPlugin('Media') ? plug('Media') : null, FS = hasPlugin('Filesystem') ? plug('Filesystem') : null;
     if (!M || !FS) { showMsg('Eklenti eksik', 'APK içinde ' + (!M ? '@capacitor-community/media ' : '') + (!FS ? '@capacitor/filesystem ' : '') + 'bulunamadı. build.yml\'deki npm install satırını ve "npx cap sync android" adımını kontrol edin.', false); return; }
 
     const errs = [];
@@ -375,7 +379,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 
     if (!out.length) {
       showMsg('Galeride medya bulunamadı', albumPaths.length + ' albüm bulundu, 0 medya okundu.\n' + errs.join('\n') +
-        '\nİzin verilmediyse: Ayarlar > Uygulamalar > Galascrol > İzinler > "Fotoğraflar ve videolar" izni verip tekrar deneyin.', true);
+        '\nİzin verilmediyse: Ayarlar > Uygulamalar > Galascroll > İzinler > "Fotoğraflar ve videolar" izni verip tekrar deneyin.', true);
       return;
     }
     const toMs = d => !d ? Date.now() : (d < 1e12 ? d * 1000 : d);
