@@ -42,8 +42,8 @@ jobs:
       run: |
         cat > capacitor.config.json <<'JSON'
         {
-          "appId": "com.ornek.galascrol",
-          "appName": "Galascrol",
+          "appId": "com.ornek.galascroll",
+          "appName": "Galascroll",
           "webDir": "www",
           "plugins": {
             "Media": {
@@ -178,5 +178,5 @@ jobs:
     - name: APK Dosyasını Kaydet
       uses: actions/upload-artifact@v4
       with:
-        name: app-debug-apk
+        name: Galascroll
         path: android/app/build/outputs/apk/debug/app-debug.apk
