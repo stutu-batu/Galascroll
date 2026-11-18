@@ -1,0 +1,31 @@
+name: Imza Anahtari Uret (TEK SEFERLIK - repo ozel olmali)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  keygen:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Anahtar uret
+      run: |
+        PASS=$(openssl rand -hex 16)
+        keytool -genkeypair -keystore release.jks -alias galascroll \
+          -keyalg RSA -keysize 2048 -validity 36500 \
+          -storepass "$PASS" -keypass "$PASS" \
+          -dname "CN=Galascroll, O=Galascroll, C=TR"
+        base64 -w0 release.jks > KEYSTORE_BASE64.txt
+        printf '%s' "$PASS" > KEYSTORE_PASSWORD.txt
+        printf '%s' "galascroll" > KEY_ALIAS.txt
+        ls -la
+
+    - name: Artifact olarak kaydet (1 gun sonra silinir)
+      uses: actions/upload-artifact@v4
+      with:
+        name: imza-anahtari
+        retention-days: 1
+        path: |
+          KEYSTORE_BASE64.txt
+          KEYSTORE_PASSWORD.txt
+          KEY_ALIAS.txt
+          release.jks
