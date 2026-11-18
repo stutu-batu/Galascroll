@@ -74,6 +74,27 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 #top button{height:40px;min-width:40px;padding:0 12px;border-radius:999px;background:var(--glass);backdrop-filter:blur(10px);font-size:.85rem;font-weight:600;display:flex;align-items:center;gap:6px}
 #top button.on{background:var(--ink);color:#000}
 #top svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.bar{touch-action:none}
+.bar::after{content:'';position:absolute;left:0;right:0;top:-22px;bottom:-14px}
+.bar.drag{height:8px}
+.bar .tip{display:none;position:absolute;bottom:16px;left:50%;transform:translateX(-50%);font-style:normal;font-size:.8rem;background:rgba(0,0,0,.65);padding:4px 9px;border-radius:8px;white-space:nowrap}
+.bar.drag .tip{display:block}
+.slide .media{transform-origin:center center;will-change:transform}
+#nofilter{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);text-align:center;padding:30px}
+#toast{position:fixed;left:12px;right:12px;bottom:calc(var(--bot) + 18px);z-index:30;background:#262626;border-radius:14px;padding:12px 16px;display:none;align-items:center;justify-content:space-between;gap:12px;font-size:.9rem}
+#toast button{color:var(--accent);font-weight:800}
+#scrim{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.55);display:none}
+#sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;max-height:75vh;max-height:75dvh;overflow:auto;background:#161616;border-radius:22px 22px 0 0;padding:6px 16px calc(var(--bot) + 24px);display:none}
+#sheet h3{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:18px 0 10px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:10px 14px;border-radius:999px;background:rgba(255,255,255,.1);font-size:.9rem;font-weight:600}
+.chip.on{background:var(--ink);color:#000}
+.row{display:flex;justify-content:space-between;gap:12px;width:100%;padding:13px 4px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left}
+.row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.on{color:var(--accent);font-weight:700}
+#emptyTrash{position:fixed;top:calc(var(--top) + 64px);left:50%;transform:translateX(-50%);z-index:6;display:none;background:#ff4d4d;color:#fff;border-radius:999px;padding:10px 16px;font-weight:700;font-size:.85rem}
+#top h2{white-space:nowrap}
+#filterLbl{max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (prefers-reduced-motion:reduce){.heart{animation-duration:.01s}.state svg{transition:none}}
 </style>
 </head>
@@ -91,13 +112,18 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
 <header id="top">
   <h2>Galascroll <small id="ver" style="font-weight:500;font-size:.65rem;opacity:.6"></small></h2>
   <div class="tools">
+    <button id="btnFilter" aria-label="Filtre ve albüm"><svg viewBox="0 0 24 24"><path d="M3 5h18M6 12h12M10 19h4"/></svg><span id="filterLbl">Hepsi</span></button>
     <button id="btnMute" aria-label="Sesi aç/kapat"></button>
     <button id="btnShuffle" aria-label="Karıştır">
-      <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>Karıştır</button>
+      <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg></button>
   </div>
 </header>
 
 <main id="feed"></main>
+<button id="emptyTrash">Çöp kutusunu boşalt</button>
+<div id="toast"></div>
+<div id="scrim"></div>
+<div id="sheet"></div>
 <input id="file" type="file" accept="image/*,video/*" multiple hidden>
 
 <script>
@@ -112,6 +138,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
   const ICON_SOUND = '<svg viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>';
   const HEART = '<svg viewBox="0 0 24 24"><path d="M12 21s-8-5.3-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.7-8 11-8 11z"/></svg>';
   const TRASH = '<svg viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>';
+  const UNDO = '<svg viewBox="0 0 24 24"><path d="M3 7v6h6M3 13a9 9 0 1 0 3-7"/></svg>';
   const PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
 
   let files = [], urls = new Map(), shuffle = false, muted = true, total = 0, order = [];
@@ -124,8 +151,23 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     return ts ? new Date(ts).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   };
 
+  let view = 'all', album = null, trash = {}, zm = null;
+  try { trash = JSON.parse(localStorage.getItem('trash') || '{}'); } catch (e) {}
+  const saveTrash = () => { try { localStorage.setItem('trash', JSON.stringify(trash)); } catch (e) {} };
+  const tkey = f => f.identifier || keyOf(f);
+  const visible = f => {
+    if (f.deleted) return false;
+    if (view === 'trash') return !!f.trashed;
+    if (f.trashed) return false;
+    if (album && f.album !== album) return false;
+    if (view === 'likes') return likes.has(keyOf(f));
+    if (view === 'video') return f.type.startsWith('video');
+    if (view === 'photo') return f.type.startsWith('image');
+    return true;
+  };
+
   const mkOrder = () => {
-    const o = files.map((_, i) => i).filter(i => !files[i].deleted);
+    const o = files.map((_, i) => i).filter(i => visible(files[i]));
     if (shuffle) for (let i = o.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [o[i], o[j]] = [o[j], o[i]]; }
     return o;
   };
@@ -144,14 +186,14 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       s.className = 'slide'; s.dataset.fi = fi; s.dataset.n = total++;
       s.innerHTML = '<div class="shade"></div><div class="state">' + PLAY + '</div>' +
         '<div class="meta"><b></b><span></span></div>' +
-        '<div class="side">' +
-          '<button class="like" aria-label="Beğen">' + HEART + '</button>' +
-          '<button class="trash" aria-label="Cihazdan Sil">' + TRASH + '</button>' +
+        '<div class="side">' + (view === 'trash'
+          ? '<button class="restore" aria-label="Geri yükle">' + UNDO + '</button><button class="purge" aria-label="Kalıcı sil">' + TRASH + '</button>'
+          : '<button class="like" aria-label="Beğen">' + HEART + '</button><button class="trash" aria-label="Çöp kutusuna taşı">' + TRASH + '</button>') +
         '</div>' +
-        (f.type.startsWith('video') ? '<div class="bar"><i></i></div>' : '');
+        (f.type.startsWith('video') ? '<div class="bar"><i></i><em class="tip"></em></div>' : '');
       s.querySelector('b').textContent = f.name || 'Galeri Medyası';
       s.querySelector('span').textContent = fmtDate(f);
-      if (likes.has(keyOf(f))) s.querySelector('.like').classList.add('on');
+      { const lk = s.querySelector('.like'); if (lk && likes.has(keyOf(f))) lk.classList.add('on'); }
       frag.appendChild(s); near.observe(s); active.observe(s);
     });
     feed.appendChild(frag);
@@ -216,7 +258,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       if (+s.dataset.n >= total - 3) addRound();
       if (v) { v.currentTime = v.currentTime; play(v, s); }
     } else {
-      delete s.dataset.on;
+      delete s.dataset.on; if (zm && s.contains(zm.el)) resetZoom();
       if (v) { v.pause(); v.currentTime = 0; }
       s.classList.remove('paused');
     }
@@ -239,38 +281,18 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       likes.has(k) ? likes.delete(k) : likes.add(k); b.classList.toggle('on', likes.has(k)); saveLikes(); return;
     }
 
-    // Çöpe atma / Cihazdan silme tuşu
-    if (e.target.closest('.trash')) {
-      const fi = s.dataset.fi;
-      const f = files[fi];
-      if (confirm('Bu medyayı cihaz hafızasından kalıcı olarak silmek istiyor musunuz?')) {
-        try {
-          if (f.isCapacitorMedia) {
-            if (!hasPlugin('GalleryTools')) throw new Error('GalleryTools eklentisi bu APK içinde yok. Sürüm: v' + APP_VERSION + '. APK içindeki eklentiler: ' + pluginNames());
-            const G = plug('GalleryTools');
-            const st = await G.hasAllFilesAccess();
-            if (!st.granted) {
-              alert('Silmek için "Tüm dosyalara erişim" izni gerekli. Açılan ekranda Galascroll için izni açın, uygulamaya geri dönüp tekrar silin.');
-              await G.requestAllFilesAccess();
-              return;
-            }
-            await G.deleteFile({ path: f.identifier });
-          }
-          f.deleted = true;
-          document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => x.remove());
-          if (files.every(x => x.deleted)) showMsg('Galeri boş', 'Tüm medyalar silindi.', true);
-        } catch (err) {
-          alert('Silinemedi: ' + String((err && err.message) || err));
-        }
-      }
-      return;
-    }
+    if (e.target.closest('.trash')) { softDelete(s.dataset.fi); return; }
+    if (e.target.closest('.restore')) { restore(s.dataset.fi); return; }
+    if (e.target.closest('.purge')) { purge([files[s.dataset.fi]]); return; }
+    if (e.target.closest('.bar')) return;
 
     const now = Date.now();
     if (now - tapT < 280) {
       clearTimeout(tapTimer); tapT = 0;
+      if (zm && zm.s > 1) { resetZoom(); return; }
+      if (view === 'trash') return;
       const f = files[s.dataset.fi], k = keyOf(f); likes.add(k); saveLikes();
-      s.querySelector('.like').classList.add('on');
+      { const lk = s.querySelector('.like'); if (lk) lk.classList.add('on'); }
       const r = s.getBoundingClientRect(), h = document.createElement('div');
       h.innerHTML = HEART; const svg = h.firstChild; svg.classList.add('heart');
       svg.style.left = (e.clientX - r.left) + 'px'; svg.style.top = (e.clientY - r.top) + 'px';
@@ -289,13 +311,153 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     files = list.filter(f => /^(image|video)\//.test(f.type));
     if (!files.length) { alert('Görsel veya video bulunamadı.'); return; }
     urls.forEach(u => URL.revokeObjectURL(u)); urls.clear();
-    feed.innerHTML = ''; total = 0; addRound();
+    const ids = new Set(files.map(tkey));
+    Object.keys(trash).forEach(k => { if (!ids.has(k)) delete trash[k]; });
+    saveTrash();
+    files.forEach(f => { if (trash[tkey(f)]) f.trashed = true; });
+    view = 'all'; album = null;
     empty.style.display = 'none'; feed.style.display = 'block'; top.style.display = 'flex';
-    feed.scrollTop = 0; setMuteIcon();
+    rebuild(); setMuteIcon();
   }
 
+  function rebuild(focusFi) {
+    resetZoom();
+    feed.innerHTML = ''; total = 0; addRound();
+    if (!feed.querySelector('.slide')) feed.innerHTML = '<div id="nofilter">Bu filtrede gösterilecek medya yok.</div>';
+    else if (focusFi != null) { const t = feed.querySelector('.slide[data-fi="' + focusFi + '"]'); if (t) t.scrollIntoView(); }
+    else feed.scrollTop = 0;
+    $('#emptyTrash').style.display = (view === 'trash' && files.some(f => f.trashed && !f.deleted)) ? 'block' : 'none';
+    refreshFilterLabel();
+  }
+
+  /* ---------- Toast ---------- */
+  let toastT;
+  function toast(msg, label, action) {
+    const t = $('#toast');
+    t.innerHTML = '<span></span>' + (label ? '<button></button>' : '');
+    t.firstChild.textContent = msg;
+    if (label) { const b = t.querySelector('button'); b.textContent = label; b.onclick = () => { t.style.display = 'none'; action(); }; }
+    t.style.display = 'flex'; clearTimeout(toastT);
+    toastT = setTimeout(() => { t.style.display = 'none'; }, label ? 5000 : 2200);
+  }
+
+  /* ---------- Çöp kutusu (geri alınabilir silme) ---------- */
+  function softDelete(fi) {
+    const f = files[fi]; if (!f) return;
+    f.trashed = true; trash[tkey(f)] = Date.now(); saveTrash();
+    document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => x.remove());
+    if (!feed.querySelector('.slide')) rebuild();
+    refreshFilterLabel();
+    toast('Çöp kutusuna taşındı', 'Geri al', () => restore(fi));
+  }
+  function restore(fi) {
+    const f = files[fi]; if (!f) return;
+    f.trashed = false; delete trash[tkey(f)]; saveTrash();
+    if (view === 'trash') {
+      document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => x.remove());
+      if (!feed.querySelector('.slide')) rebuild(); else refreshFilterLabel();
+    } else rebuild(fi);
+    toast('Geri yüklendi');
+  }
+  async function purge(list) {
+    list = list.filter(Boolean);
+    if (!list.length) return;
+    if (!confirm(list.length + ' medya cihazdan KALICI olarak silinecek. Android ayrıca bir onay penceresi gösterecek. Devam edilsin mi?')) return;
+    try {
+      if (!hasPlugin('GalleryTools')) throw new Error('GalleryTools eklentisi bu APK içinde yok. Sürüm: v' + APP_VERSION + '. APK içindeki eklentiler: ' + pluginNames());
+      const G = plug('GalleryTools');
+      const res = await G.deleteFiles({ paths: list.map(f => f.identifier) });
+      const done = new Set((res && res.deleted) || []);
+      list.forEach(f => { if (done.has(f.identifier)) { f.deleted = true; delete trash[tkey(f)]; } });
+      saveTrash(); rebuild();
+      const fail = list.length - done.size;
+      toast(done.size + ' medya silindi' + (fail ? ', ' + fail + ' dosya silinemedi' : ''));
+    } catch (err) {
+      if (err && err.code === 'CANCELLED') toast('Silme iptal edildi');
+      else alert('Silinemedi: ' + describe(err));
+    }
+  }
+  $('#emptyTrash').onclick = () => purge(files.filter(f => f.trashed && !f.deleted));
+
+  /* ---------- Filtre + albüm paneli ---------- */
+  const VIEWS = [['all', 'Hepsi'], ['likes', 'Beğendiklerim'], ['video', 'Videolar'], ['photo', 'Fotoğraflar'], ['trash', 'Çöp kutusu']];
+  const albumName = p => { try { return decodeURIComponent((p || '').split('/').filter(Boolean).pop() || ''); } catch (e) { return p; } };
+  function refreshFilterLabel() {
+    $('#filterLbl').textContent = (album && view !== 'trash') ? albumName(album) : VIEWS.find(x => x[0] === view)[1];
+    $('#btnFilter').classList.toggle('on', view !== 'all' || !!album);
+  }
+  function closeSheet() { $('#sheet').style.display = 'none'; $('#scrim').style.display = 'none'; }
+  function openSheet() {
+    const live = files.filter(f => !f.deleted), nTrash = live.filter(f => f.trashed).length, normal = live.filter(f => !f.trashed);
+    const map = new Map(); normal.forEach(f => { if (f.album) map.set(f.album, (map.get(f.album) || 0) + 1); });
+    const alist = [...map].sort((x, y) => y[1] - x[1]);
+    const sh = $('#sheet');
+    sh.innerHTML = '<h3>Göster</h3><div class="chips">' + VIEWS.map(v => '<button class="chip' + (view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + (v[0] === 'trash' ? ' (' + nTrash + ')' : '') + '</button>').join('') + '</div>' +
+      (alist.length ? '<h3>Albüm</h3><button class="row' + (!album ? ' on' : '') + '" data-a=""><span>Tüm albümler</span><span>' + normal.length + '</span></button>' +
+        alist.map((x, i) => '<button class="row' + (album === x[0] ? ' on' : '') + '" data-a="' + i + '"><span></span><span>' + x[1] + '</span></button>').join('') : '');
+    sh.querySelectorAll('[data-a]').forEach(r => { if (r.dataset.a !== '') r.firstChild.textContent = albumName(alist[+r.dataset.a][0]); });
+    sh.onclick = e => {
+      const c = e.target.closest('[data-v]');
+      if (c) { view = c.dataset.v; closeSheet(); rebuild(); return; }
+      const r = e.target.closest('[data-a]');
+      if (r) { album = r.dataset.a === '' ? null : alist[+r.dataset.a][0]; if (view === 'trash') view = 'all'; closeSheet(); rebuild(); }
+    };
+    $('#scrim').style.display = 'block'; sh.style.display = 'block';
+  }
+  $('#btnFilter').onclick = openSheet;
+  $('#scrim').onclick = closeSheet;
+
+  /* ---------- Fotoğrafta iki parmakla yakınlaştırma ---------- */
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  const applyZoom = () => { zm.el.style.transform = 'translate(' + zm.x + 'px,' + zm.y + 'px) scale(' + zm.s + ')'; };
+  function resetZoom() { if (zm) { zm.el.style.transform = ''; zm = null; } feed.style.overflowY = ''; }
+  feed.addEventListener('touchstart', e => {
+    const sl = e.target.closest('.slide'); if (!sl) return;
+    const img = sl.querySelector('img.media');
+    if (e.touches.length === 2 && img) {
+      if (!zm || zm.el !== img) { resetZoom(); zm = { el: img, s: 1, x: 0, y: 0 }; }
+      zm.d0 = dist(e.touches); zm.s0 = zm.s; zm.pinch = true; zm.pan = false; feed.style.overflowY = 'hidden';
+    } else if (e.touches.length === 1 && zm && zm.s > 1) {
+      zm.pan = true; zm.px = e.touches[0].clientX - zm.x; zm.py = e.touches[0].clientY - zm.y;
+    }
+  }, { passive: true });
+  feed.addEventListener('touchmove', e => {
+    if (!zm) return;
+    if (e.touches.length === 2 && zm.pinch) {
+      e.preventDefault(); zm.s = Math.min(5, Math.max(1, zm.s0 * dist(e.touches) / zm.d0)); applyZoom();
+    } else if (e.touches.length === 1 && zm.pan && zm.s > 1) {
+      e.preventDefault(); zm.x = e.touches[0].clientX - zm.px; zm.y = e.touches[0].clientY - zm.py; applyZoom();
+    }
+  }, { passive: false });
+  feed.addEventListener('touchend', e => {
+    if (!zm) return;
+    if (e.touches.length === 0) { zm.pinch = false; zm.pan = false; if (zm.s < 1.05) resetZoom(); }
+    else if (e.touches.length === 1) { zm.pinch = false; if (zm.s > 1) { zm.pan = true; zm.px = e.touches[0].clientX - zm.x; zm.py = e.touches[0].clientY - zm.y; } }
+  });
+
+  /* ---------- Videoda ilerleme çubuğunu sürükleyerek sarma ---------- */
+  let seek = null;
+  const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+  function seekTo(e) {
+    const r = seek.bar.getBoundingClientRect(), p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    seek.v.currentTime = p * seek.v.duration;
+    seek.bar.querySelector('i').style.width = (p * 100) + '%';
+    seek.bar.querySelector('.tip').textContent = fmt(seek.v.currentTime) + ' / ' + fmt(seek.v.duration);
+  }
+  feed.addEventListener('pointerdown', e => {
+    const bar = e.target.closest('.bar'); if (!bar) return;
+    const v = bar.closest('.slide').querySelector('video'); if (!v || !v.duration) return;
+    seek = { bar, v, was: !v.paused };
+    try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+    bar.classList.add('drag'); v.pause(); seekTo(e);
+  });
+  feed.addEventListener('pointermove', e => { if (seek) seekTo(e); });
+  const endSeek = () => { if (!seek) return; seek.bar.classList.remove('drag'); if (seek.was) seek.v.play().catch(() => {}); seek = null; };
+  feed.addEventListener('pointerup', endSeek);
+  feed.addEventListener('pointercancel', endSeek);
+
   $('#btnMute').onclick = () => { muted = !muted; setMuteIcon(); };
-  $('#btnShuffle').onclick = e => { shuffle = !shuffle; e.currentTarget.classList.toggle('on', shuffle); if (files.length) start(files); };
+  $('#btnShuffle').onclick = e => { shuffle = !shuffle; e.currentTarget.classList.toggle('on', shuffle); if (files.length) rebuild(); };
 
   /* ---------- Hata/teşhis yardımcıları (APK'da logcat yok, hatayı ekranda göster) ---------- */
   const describe = e => { if (!e) return 'bilinmeyen hata'; try { return (e.message || e.errorMessage || JSON.stringify(e)) + (e.code ? ' [' + e.code + ']' : ''); } catch (_) { return String(e); } };
@@ -386,7 +548,7 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     out.sort((x, y) => y.mtime - x.mtime);
     start(out.slice(0, 3000).map(x => ({
       name: x.name, size: 0, lastModified: toMs(x.mtime),
-      type: x.vid ? 'video/mp4' : 'image/jpeg', identifier: x.uri,
+      type: x.vid ? 'video/mp4' : 'image/jpeg', identifier: x.uri, album: x.uri.slice(0, x.uri.lastIndexOf('/')),
       thumb: null, webPath: null, isCapacitorMedia: true
     })));
   }
