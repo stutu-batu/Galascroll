@@ -242,17 +242,19 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       if (confirm('Bu medyayı cihaz hafızasından kalıcı olarak silmek istiyor musunuz?')) {
         try {
           if (f.isCapacitorMedia) {
-            const M = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Media;
-            if (!M) throw new Error('Media eklentisi yok');
-            await M.deleteMedia({ identifier: f.identifier });
+            const G = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.GalleryTools;
+            if (!G) throw new Error('GalleryTools eklentisi APK içinde yok (build.yml güncel mi?)');
+            const st = await G.hasAllFilesAccess();
+            if (!st.granted) {
+              alert('Silmek için "Tüm dosyalara erişim" izni gerekli. Açılan ekranda Galascrol için izni açın, uygulamaya geri dönüp tekrar silin.');
+              await G.requestAllFilesAccess();
+              return;
+            }
+            await G.deleteFile({ path: f.identifier });
           }
           f.deleted = true;
           document.querySelectorAll('.slide[data-fi="' + fi + '"]').forEach(x => x.remove());
-          if (files.every(x => x.deleted)) {
-            feed.style.display = 'none';
-            top.style.display = 'none';
-            empty.style.display = 'flex';
-          }
+          if (files.every(x => x.deleted)) showMsg('Galeri boş', 'Tüm medyalar silindi.', true);
         } catch (err) {
           alert('Silinemedi: ' + String((err && err.message) || err));
         }
