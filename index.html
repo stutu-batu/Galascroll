@@ -151,7 +151,8 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     return ts ? new Date(ts).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   };
 
-  let view = 'all', album = null, trash = {}, zm = null;
+  let view = 'all', album = null, trash = {}, zm = null, fill = false;
+  try { fill = localStorage.getItem('fill') === '1'; } catch (e) {}
   try { trash = JSON.parse(localStorage.getItem('trash') || '{}'); } catch (e) {}
   const saveTrash = () => { try { localStorage.setItem('trash', JSON.stringify(trash)); } catch (e) {} };
   const tkey = f => f.identifier || keyOf(f);
@@ -236,12 +237,11 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
       m = document.createElement('video');
       Object.assign(m, { loop: true, muted, playsInline: true, preload: 'auto' });
       m.setAttribute('playsinline', ''); m.src = u;
-      m.addEventListener('loadedmetadata', () => s.classList.toggle('cover', m.videoHeight > m.videoWidth));
+      m.addEventListener('loadedmetadata', () => s.classList.toggle('cover', fill && m.videoHeight > m.videoWidth));
       const bar = s.querySelector('.bar i');
       m.addEventListener('timeupdate', () => { if (bar && m.duration) bar.style.width = (m.currentTime / m.duration * 100) + '%'; });
     } else {
       m = new Image(); m.decoding = 'async'; m.src = u;
-      m.addEventListener('load', () => s.classList.toggle('cover', m.naturalHeight > m.naturalWidth));
     }
     m.className = 'media'; s.prepend(m);
   }
@@ -393,10 +393,13 @@ button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
     const alist = [...map].sort((x, y) => y[1] - x[1]);
     const sh = $('#sheet');
     sh.innerHTML = '<h3>Göster</h3><div class="chips">' + VIEWS.map(v => '<button class="chip' + (view === v[0] ? ' on' : '') + '" data-v="' + v[0] + '">' + v[1] + (v[0] === 'trash' ? ' (' + nTrash + ')' : '') + '</button>').join('') + '</div>' +
+      '<h3>Görünüm</h3><div class="chips"><button class="chip' + (fill ? ' on' : '') + '" data-f="1">Dikey videoları ekrana doldur</button></div>' +
       (alist.length ? '<h3>Albüm</h3><button class="row' + (!album ? ' on' : '') + '" data-a=""><span>Tüm albümler</span><span>' + normal.length + '</span></button>' +
         alist.map((x, i) => '<button class="row' + (album === x[0] ? ' on' : '') + '" data-a="' + i + '"><span></span><span>' + x[1] + '</span></button>').join('') : '');
     sh.querySelectorAll('[data-a]').forEach(r => { if (r.dataset.a !== '') r.firstChild.textContent = albumName(alist[+r.dataset.a][0]); });
     sh.onclick = e => {
+      const fb = e.target.closest('[data-f]');
+      if (fb) { fill = !fill; try { localStorage.setItem('fill', fill ? '1' : '0'); } catch (_) {} closeSheet(); rebuild(); return; }
       const c = e.target.closest('[data-v]');
       if (c) { view = c.dataset.v; closeSheet(); rebuild(); return; }
       const r = e.target.closest('[data-a]');
