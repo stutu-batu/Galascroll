@@ -1,0 +1,15 @@
+# Derleme sırasında workflow tarafından yeniden oluşturulur
+node_modules/
+android/
+www/
+capacitor.config.json
+release-notes.md
+*.apk
+*.apk.sha256
+
+# İmza anahtarları: ASLA repoya girmemeli
+*.jks
+*.keystore
+KEYSTORE_BASE64.txt
+KEYSTORE_PASSWORD.txt
+KEY_ALIAS.txt
